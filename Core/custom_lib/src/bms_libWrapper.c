@@ -134,14 +134,13 @@ ChargerConfiguration chargerConfig = {
         .disable_charging = 1,
 };
 
-static const float balancingThreshold = 0.030; // Volts
+static const float balancingThreshold = 0.020; // Volts
 
 static const bool DEBUG_SERIAL_VOLTAGE_ENABLED = false;
 static const bool DEBUG_SERIAL_AUX_ENABLED = false;
 static const bool DEBUG_SERIAL_MASTER_MEASUREMENTS = false;
 
-
-volatile bool enableBalancing = false;
+volatile bool enableBalancing = true;
 
 
 void bms_resetConfig(void)
@@ -882,6 +881,7 @@ void bms_stopDischarge(void)
         for (int c = 0; c < TOTAL_CELL; c++)
         {
             bms_setPwm(ic, c, 0b0000);    // Turn off PWM discharge for that cell
+            BIT_CLEAR(ic_ad68.isDischarging[ic], c);
         }
 
         // The PWM discharge functionality is possible in the standby, REF-UP, extended balancing and in the measure states
@@ -1131,30 +1131,48 @@ BMS_StatusTypeDef BMS_CheckCommsFault(void)
 void BMS_SetCommsFault(bool state)
 {
     if (state)
-        BMS_StatusFlags &= ~BMS_ERR_COMMS;  // Clear fault
-    else
         BMS_StatusFlags |= BMS_ERR_COMMS;   // Set fault
+    else
+        BMS_StatusFlags &= ~BMS_ERR_COMMS;  // Clear fault
 }
 
 
 BMS_StatusTypeDef BMS_UpdateStatusFlags(void)
 {
-    const float MAX_PACK_VOLTAGE = 4.2 * 16 * 7;
-    const float MIN_PACK_VOLTAGE = 3.0 * 16 * 7;
+//    const float MAX_PACK_VOLTAGE = 4.2 * 16 * 7;
+//    const float MIN_PACK_VOLTAGE = 3.0 * 16 * 7;
+//
+//    const float MAX_CURRENT = 10.0;
+//    const float MIN_CURRENT = -MAX_CURRENT;
+//
+//    const float MAX_VOLTAGE = 4.2;
+//    const float MIN_VOLTAGE = 3.3;
+//
+//    const float MAX_IC_VOLTAGE = 4.2 * 16;
+//    const float MIN_IC_VOLTAGE = 3.0 * 16;
+//
+//    const float MAX_TEMP = 60;
+//    const float MIN_TEMP = 0;
+//
+//    const float MAX_IC_TEMP = 70;
+//    const float MIN_IC_TEMP = 0;
+
+    const float MAX_PACK_VOLTAGE = 999;
+    const float MIN_PACK_VOLTAGE = 000;
 
     const float MAX_CURRENT = 10.0;
     const float MIN_CURRENT = -MAX_CURRENT;
 
-    const float MAX_VOLTAGE = 4.2;
-    const float MIN_VOLTAGE = 3.3;
+    const float MAX_VOLTAGE = 99;
+    const float MIN_VOLTAGE = 0;
 
-    const float MAX_IC_VOLTAGE = 4.2 * 16;
-    const float MIN_IC_VOLTAGE = 3.0 * 16;
+    const float MAX_IC_VOLTAGE = 16;
+    const float MIN_IC_VOLTAGE = 0;
 
-    const float MAX_TEMP = 60;
+    const float MAX_TEMP = 9999;
     const float MIN_TEMP = 0;
 
-    const float MAX_IC_TEMP = 70;
+    const float MAX_IC_TEMP = 9999;
     const float MIN_IC_TEMP = 0;
 
     BMS_StatusTypeDef status = BMS_OK;

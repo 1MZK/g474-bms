@@ -19,6 +19,8 @@ char buffer[BUFFER_SIZE] = {0};
 volatile int head = 0;
 volatile int tail = 0;
 
+static uint32_t bufferFreeSize = 0;
+
 bool isFull = false;
 bool isWrapped = false;
 
@@ -76,6 +78,8 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef * huart)
 // Function to append formatted data to the ring buffer
 int printfDma(const char *format, ...)
 {
+    bufferFreeSize = BUFFER_SIZE - getDataLen();
+
     const int TEMP_BUFF_SIZE = 256;
 
     char temp_buffer[TEMP_BUFF_SIZE];
@@ -96,7 +100,7 @@ int printfDma(const char *format, ...)
     else if (getDataLen() + written > BUFFER_SIZE)
     {
         // Buffer full
-        Error_Handler();
+//        Error_Handler();
     }
 
     for (int i = 0; i < written; i++)
@@ -111,7 +115,8 @@ int printfDma(const char *format, ...)
 
         if (head == tail)
         {
-            Error_Handler();
+            printfDma("\n\n UART BUFFER FULL DATA OVERWRITTEN \n\n");
+//            Error_Handler();
         }
     }
 

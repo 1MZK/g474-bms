@@ -83,16 +83,13 @@ typedef struct {
     volatile uint32_t runtime_sec;
     volatile uint32_t counter_commsError;
     volatile uint32_t counter_commsErrorCumulative;
-
-    volatile uint32_t time_voltageFaultStart;
-    volatile uint32_t time_tempFaultStart;
 } ProgramStats;
 
 ProgramStats programStats = {0};
 
 volatile bool initRequired = true;
 
-const uint32_t MAIN_LOOP_DELAY = 500;
+const uint32_t MAIN_LOOP_DELAY = 10;
 
 static const bool DEBUG_SERIAL_LOOP_TIME = false;
 
@@ -198,6 +195,8 @@ int main(void)
         {
             BMS_FaultHandler(bmsStatus);
         }
+
+        printfDma("-\n");
 
         // Calculate single loop runtime
         timeDiff = getRuntimeMsDiff(timeStart);
