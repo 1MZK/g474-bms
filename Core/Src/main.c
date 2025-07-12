@@ -401,7 +401,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
 void BMS_FaultHandler(BMS_StatusTypeDef status)
 {
-    const uint32_t COMMS_RETRY_DELAY = 100;
+    const uint32_t COMMS_RETRY_DELAY = 500;
     const uint32_t COMMS_RETRY_TIMES = 5;
 
     // Disable discharge in any case
@@ -428,8 +428,9 @@ void BMS_FaultHandler(BMS_StatusTypeDef status)
             {
                 BMS_WriteFaultSignal(true);
             }
-            bms_softReset();
             HAL_Delay(COMMS_RETRY_DELAY);
+            bms_softReset();
+            bms_wakeupChain();
         }
         while (bms_readRegister(REG_SID) != BMS_OK);
 
