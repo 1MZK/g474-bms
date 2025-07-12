@@ -112,6 +112,7 @@ typedef struct
     float v_pack_max;
 } Ic_common;
 
+
 Ic_common   ic_common;
 Ic_ad29     ic_ad29;
 Ic_ad68     ic_ad68;
@@ -121,10 +122,11 @@ uint8_t  rxData[TOTAL_IC][DATA_LEN];
 uint16_t rxPec[TOTAL_IC];
 uint8_t  rxCc[TOTAL_IC];
 
+CanTxMsg canTxBuffer[CAN_BUFFER_LEN] = {0};
+
 VoltageTypes dischargeVoltageType = VOLTAGE_S;
 
-#define CAN_BUFFER_LEN (7 * 16 + 64)                // TODO: Calculate accurate buffer size
-CanTxMsg canTxBuffer[CAN_BUFFER_LEN] = {0};
+uint32_t BMS_StatusFlags = BMS_ERR_COMMS;          // Stores flags in bits
 
 ChargerConfiguration chargerConfig = {
         .max_current = 1,
@@ -140,8 +142,6 @@ static const bool DEBUG_SERIAL_MASTER_MEASUREMENTS = false;
 
 
 volatile bool enableBalancing = false;
-volatile bool newDataReady = false;
-
 
 
 void bms_resetConfig(void)
@@ -1105,16 +1105,40 @@ void BMS_GetCanData(CanTxMsg** buff, uint32_t* len)
 
     *len = bufferlen;
     *buff = canTxBuffer;
-
-    newDataReady = false;
 }
 
 
-BMS_StatusTypeDef bms_checkStatus(void)
+BMS_StatusTypeDef BMS_CheckTemps(void)
 {
-    // Check voltage
-    // Check temp
+    return (BMS_StatusFlags & BMS_ERR_TEMP);
+}
 
+BMS_StatusTypeDef BMS_CheckVoltage(void)
+{
+    return (BMS_StatusFlags & BMS_ERR_VOLTAGE);
+}
+
+BMS_StatusTypeDef BMS_CheckCurrent(void)
+{
+    return (BMS_StatusFlags & BMS_ERR_CURRENT);
+}
+
+BMS_StatusTypeDef BMS_CheckCommsFault(void)
+{
+    return (BMS_StatusFlags & BMS_ERR_COMMS);
+}
+
+void BMS_SetCommsFault(bool state)
+{
+    if (state)
+        BMS_StatusFlags &= ~BMS_ERR_COMMS;  // Clear fault
+    else
+        BMS_StatusFlags |= BMS_ERR_COMMS;   // Set fault
+}
+
+
+BMS_StatusTypeDef BMS_UpdateStatusFlags(void)
+{
     const float MAX_PACK_VOLTAGE = 4.2 * 16 * 7;
     const float MIN_PACK_VOLTAGE = 3.0 * 16 * 7;
 
@@ -1142,32 +1166,18 @@ BMS_StatusTypeDef bms_checkStatus(void)
         float packVoltage = ic_common.v_pack_total;
         float packCurrent = ic_ad29.current1;
 
-        if (packVoltage > MAX_PACK_VOLTAGE)
+        if (packVoltage > MAX_PACK_VOLTAGE || packVoltage < MIN_PACK_VOLTAGE)
         {
-            printfDma("Pack Overvoltage Detected: %f V \n", packVoltage);
+            printfDma("PACK VOLTAGE FAULT: %f V \n", packVoltage);
             ic_common.isFaultDetected[0] = true;
-            status = BMS_ERR_FAULT;
+            status |= BMS_ERR_VOLTAGE;
         }
 
-        if (packVoltage < MIN_PACK_VOLTAGE)
+        if (packCurrent > MAX_CURRENT || packCurrent < MIN_CURRENT)
         {
-            printfDma("Pack Undervoltage Detected: %f V \n", packVoltage);
+            printfDma("PACK CURRENT FAULT: %f C \n", packCurrent);
             ic_common.isFaultDetected[0] = true;
-            status = BMS_ERR_FAULT;
-        }
-
-        if (packCurrent > MAX_CURRENT)
-        {
-            printfDma("Pack OverTemp Detected: %f C \n", packCurrent);
-            ic_common.isFaultDetected[0] = true;
-            status = BMS_ERR_FAULT;
-        }
-
-        if (packCurrent < MIN_CURRENT)
-        {
-            printfDma("Pack UnderTemp Detected: %f C \n", packCurrent);
-            ic_common.isFaultDetected[0] = true;
-            status = BMS_ERR_FAULT;
+            status |= BMS_ERR_CURRENT;
         }
 
         if (status == BMS_OK)
@@ -1186,32 +1196,18 @@ BMS_StatusTypeDef bms_checkStatus(void)
             float cellVoltage = ic_ad68.v_cell[dischargeVoltageType][ic][c];
             float cellTemp = ic_ad68.temp_cell[ic][c];
 
-            if (cellVoltage > MAX_VOLTAGE)
+            if (cellVoltage > MAX_VOLTAGE || cellVoltage < MIN_VOLTAGE)
             {
-                printfDma("Overvoltage Detected: SEG %d, CELL %d, %f \n", ic+1, c+1, cellVoltage);
+                printfDma("CELL VOLTAGE FAULT: SEG %d, CELL %d, %f \n", ic+1, c+1, cellVoltage);
                 BIT_SET(ic_ad68.isCellFaultDetected[ic], c);
-                status = BMS_ERR_FAULT;
+                status |= BMS_ERR_VOLTAGE;
             }
 
-            if (cellVoltage < MIN_VOLTAGE)
+            if (cellTemp > MAX_TEMP || cellTemp < MIN_TEMP)
             {
-                printfDma("Undervoltage Detected: SEG %d, CELL %d, %f \n", ic+1, c+1, cellVoltage);
+                printfDma("CELL TEMP FAULT: SEG %d, CELL %d, %f \n", ic+1, c+1, cellTemp);
                 BIT_SET(ic_ad68.isCellFaultDetected[ic], c);
-                status = BMS_ERR_FAULT;
-            }
-
-            if (cellTemp > MAX_TEMP)
-            {
-                printfDma("OverTemp Detected: SEG %d, CELL %d, %f \n", ic+1, c+1, cellTemp);
-                BIT_SET(ic_ad68.isCellFaultDetected[ic], c);
-                status = BMS_ERR_FAULT;
-            }
-
-            if (cellTemp < MIN_TEMP)
-            {
-                printfDma("UnderTemp Detected: SEG %d, CELL %d, %f \n", ic+1, c+1, cellTemp);
-                BIT_SET(ic_ad68.isCellFaultDetected[ic], c);
-                status = BMS_ERR_FAULT;
+                status |= BMS_ERR_TEMP;
             }
 
             if (status == BMS_OK)
@@ -1226,32 +1222,18 @@ BMS_StatusTypeDef bms_checkStatus(void)
         float icVoltage = ic_ad68.v_segment[ic];
         float icTemp = ic_ad68.temp_ic[ic];
 
-        if (icVoltage > MAX_IC_VOLTAGE)
+        if (icVoltage > MAX_IC_VOLTAGE || icVoltage < MIN_IC_VOLTAGE)
         {
-            printfDma("IC Overvoltage Detected: SEG %d, %f \n", ic+1, icVoltage);
+            printfDma("IC VOLTAGE FAULT: SEG %d, %f \n", ic+1, icVoltage);
             ic_common.isFaultDetected[ic + TOTAL_AD29] = true;
-            status = BMS_ERR_FAULT;
+            status |= BMS_ERR_VOLTAGE;
         }
 
-        if (icVoltage < MIN_IC_VOLTAGE)
+        if (icTemp > MAX_IC_TEMP || icTemp < MIN_IC_TEMP)
         {
-            printfDma("IC Undervoltage Detected: SEG %d, %f \n", ic+1, icVoltage);
+            printfDma("IC TEMP FAULT: SEG %d, %f \n", ic+1, icTemp);
             ic_common.isFaultDetected[ic + TOTAL_AD29] = true;
-            status = BMS_ERR_FAULT;
-        }
-
-        if (icTemp > MAX_IC_TEMP)
-        {
-            printfDma("IC OverTemp Detected: SEG %d, %f \n", ic+1, icTemp);
-            ic_common.isFaultDetected[ic + TOTAL_AD29] = true;
-            status = BMS_ERR_FAULT;
-        }
-
-        if (icTemp < MIN_IC_TEMP)
-        {
-            printfDma("IC UnderTemp Detected: SEG %d, %f \n", ic+1, icTemp);
-            ic_common.isFaultDetected[ic + TOTAL_AD29] = true;
-            status = BMS_ERR_FAULT;
+            status |= BMS_ERR_TEMP;
         }
 
         if (status == BMS_OK)
@@ -1262,6 +1244,8 @@ BMS_StatusTypeDef bms_checkStatus(void)
         returnStatus |= status;
         status = BMS_OK;
     }
+
+    BMS_StatusFlags = returnStatus;
     return returnStatus;
 }
 
@@ -1283,17 +1267,15 @@ BMS_StatusTypeDef BMS_ProgramLoop(void)
     if ((status = bms_balancingMeasureVoltage()))       return status;
 
     // Only balancing/charging if status is OK
-//    status = bms_checkStatus();
-//    status = BMS_OK;              // Uncomment to bypass status check
+    status = BMS_UpdateStatusFlags();
 
-    if (enableBalancing && (status == BMS_OK))
+    if (enableBalancing && (status == BMS_OK)) // Only if everything is OK, we enable balancing
     {
         bms_wakeupChain();
         bms_startBalancing(balancingThreshold);
     }
 
     bms_wakeupChain();
-    newDataReady = true;
     return status;
 }
 
@@ -1328,6 +1310,9 @@ void BMS_EnableBalancing(bool enabled)
 
 void BMS_ChargingButtonLogic(void)
 {
+    // Check for charger status and enables charging
+    // or disables charger if charging is enabled
+
     bool chargerEnabled = !chargerConfig.disable_charging;
 
     if (chargerEnabled)
@@ -1353,10 +1338,22 @@ void BMS_ChargingButtonLogic(void)
     }
 }
 
-bool BMS_CheckNewDataReady(void)
+
+
+
+void BMS_WriteFaultSignal(bool state)
 {
-    return newDataReady;
+    static bool currState = 1;
+    if (currState != state)
+    {
+        char *stateStr = (state)? "ON " : "OFF";
+        printfDma("FAULT SIGNAL UPDATE: %s\n", stateStr);
+
+        HAL_GPIO_WritePin(FAULT_CTRL_GPIO_Port, FAULT_CTRL_Pin, state); // If mosfet is ON, Fault == TRUE
+        currState = state;
+    }
 }
+
 
 
 

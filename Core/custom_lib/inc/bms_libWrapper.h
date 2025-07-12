@@ -72,7 +72,12 @@ bool BMS_IsCharging(void);
 void BMS_EnableBalancing(bool enabled);
 void BMS_ToggleBalancing(void);
 
-bool BMS_CheckNewDataReady(void);
+BMS_StatusTypeDef BMS_CheckTemps(void);
+BMS_StatusTypeDef BMS_CheckVoltage(void);
+BMS_StatusTypeDef BMS_CheckCurrent(void);
+BMS_StatusTypeDef BMS_CheckCommsFault(void);
 
+void BMS_SetCommsFault(bool state);
 
+void BMS_WriteFaultSignal(bool state);
 

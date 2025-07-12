@@ -15,6 +15,7 @@
 
 #define BASE_CAN_ID 0xB000
 
+#define CAN_BUFFER_LEN (7 * 16 + 64)       // TODO: Accurate buffer size
 
 typedef struct
 {

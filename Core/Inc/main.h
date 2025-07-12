@@ -42,10 +42,10 @@ extern "C" {
 
 typedef enum {
     BMS_OK          = 0x00,
-    BMS_ERR_COMMS   = -1,
-    BMS_ERR_VOLTAGE = 0x01,
-    BMS_ERR_TEMP    = 0x02,
-    BMS_ERR_FAULT = 0x04,
+    BMS_ERR_COMMS   = 0x01,
+    BMS_ERR_VOLTAGE = 0x02,
+    BMS_ERR_TEMP    = 0x04,
+    BMS_ERR_CURRENT = 0x08,
 } BMS_StatusTypeDef;
 
 
@@ -65,7 +65,7 @@ extern FDCAN_HandleTypeDef hfdcan2;
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
 #define TOTAL_CELL      16      // VALUES OTHER THAN 16 IS NOT PROPERLY HANDLED
-#define TOTAL_AD68      0
+#define TOTAL_AD68      1
 #define TOTAL_AD29      1       // SHOULD ONLY BE EITHER 0 OR 1
 
 #define TOTAL_IC        (TOTAL_AD29 + TOTAL_AD68)

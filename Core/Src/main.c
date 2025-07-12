@@ -173,9 +173,6 @@ int main(void)
 
     BMS_StatusTypeDef bmsStatus;
 
-    BMS_EnableBalancing(false);
-    BMS_EnableCharging(false);
-
     while (1)
     {
         timeStart = getRuntimeMs();
@@ -201,21 +198,8 @@ int main(void)
         {
             BMS_FaultHandler(bmsStatus);
         }
-        else
-        {
-            // Everything is OK, so disable the fault signal and enable balancing
-            BMS_WriteFaultSignal(false);
-            BMS_EnableBalancing(true);
-        }
 
-        // If charging and SDC is disconnected (LOW)
-        if (BMS_IsCharging() && !HAL_GPIO_ReadPin(SDC_IN_GPIO_Port, SDC_IN_Pin))
-        {
-            printfDma("SDC Disconnected, Disabling Charging");
-            BMS_EnableCharging(false);
-        }
-
-
+        // Calculate single loop runtime
         timeDiff = getRuntimeMsDiff(timeStart);
         if (DEBUG_SERIAL_LOOP_TIME)
         {
@@ -282,22 +266,90 @@ void SystemClock_Config(void)
 // Callback: timer has rolled over
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-    // Check which version of the timer triggered this callback and toggle LED
-    if (htim == &htim16) // This is triggered every second
-    {
-        programStats.runtime_sec += 1;
-        // check CAN status
-        // check for faults
-        // check for bms status
-        // if OK, get can data
-        // send CAN messages
+    uint32_t currentTime = HAL_GetTick(); // Get current time
 
-//        if (BMS_CheckNewDataReady())
+    // Check which version of the timer triggered this callback and toggle LED
+    static uint32_t secondsDiv = 0;
+
+    // CAN Transmit Periodic Timing Variable
+    static uint32_t canTiming = 0;
+
+    // Voltage fault timer variables
+    const uint32_t VOLTAGE_FAULT_PERIOD = 500 - 10;
+    static uint32_t lastVoltageFaultTime = 0;
+    static bool voltageFaultDetected = false;
+
+    // Temperature fault Time
+    const uint32_t TEMP_FAULT_PERIOD = 1000 - 10;
+    static uint32_t lastTempFaultTime = 0;
+    static bool tempFaultDetected = false;
+
+    if (htim == &htim16) // This is triggered 10x every second
+    {
+        // runtime (seconds) timer
+        if (++secondsDiv >= 10)
+        {
+            programStats.runtime_sec += 1;
+            secondsDiv = 0;
+        }
+
+        // CAN Timing Divider
+        if (++canTiming >= 5)
         {
             CanTxMsg *msgArr = NULL;
             uint32_t len = 0;
             BMS_GetCanData(&msgArr, &len);
             BMS_CAN_SendBuffer(msgArr, len);
+            canTiming = 0;
+        }
+
+        // voltage fault handling
+        if (BMS_CheckVoltage() == BMS_OK)       // If OK:
+        {
+            voltageFaultDetected = false;
+        }
+        else                                    // If NOT OK
+        {
+            if (!voltageFaultDetected)          // First time NOT OK
+            {
+                voltageFaultDetected = true;
+                lastVoltageFaultTime = currentTime;
+            }
+            else if (currentTime - lastVoltageFaultTime > VOLTAGE_FAULT_PERIOD)     // NOT OK for given period
+            {
+                BMS_WriteFaultSignal(true);
+            }
+        }
+
+        // temperature fault handling
+        if (BMS_CheckTemps() == BMS_OK)     // If OK:
+        {
+            tempFaultDetected = false;
+        }
+        else                                // If NOT OK
+        {
+            if (!tempFaultDetected)         // First time NOT OK
+            {
+                tempFaultDetected = true;
+                lastTempFaultTime = currentTime;
+            }
+            else if (currentTime - lastTempFaultTime > TEMP_FAULT_PERIOD)     // NOT OK for given period
+            {
+                BMS_WriteFaultSignal(true);
+            }
+        }
+
+        // Disable fault signal only if everything is OK
+        if (!tempFaultDetected && !voltageFaultDetected && (BMS_CheckCommsFault() == BMS_OK))
+        {
+            BMS_WriteFaultSignal(false);
+        }
+
+        // If charging and SDC is disconnected (LOW):
+        if (BMS_IsCharging() && !HAL_GPIO_ReadPin(SDC_IN_GPIO_Port, SDC_IN_Pin))
+        {
+            printfDma("SDC Disconnected, Disabling Charging \n");
+            BMS_EnableCharging(false);
         }
     }
 }
@@ -325,49 +377,48 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
     switch (GPIO_Pin)
     {
-        case B1_Pin:                // Blue onboard button (for debugging mainly)
-            // Debounce check
-            if (currentTime - lastDebounceTime_B1 < DEBOUNCE_DELAY) break;
-            lastDebounceTime_B1 = currentTime;
-            printfDma("Blue Button pressed\n");
-            break;
+    case B1_Pin:                // Blue onboard button (for debugging mainly)
+        // Debounce check
+        if (currentTime - lastDebounceTime_B1 < DEBOUNCE_DELAY) break;
+        lastDebounceTime_B1 = currentTime;
+        printfDma("Blue Button pressed\n");
+        break;
 
-        case CHRGR_BTTN_Pin:        // Charger Button
-            // Debounce check
-            if (currentTime - lastDebounceTime_CHRGR_BTTN < DEBOUNCE_DELAY) break;
-            lastDebounceTime_CHRGR_BTTN = currentTime;
+    case CHRGR_BTTN_Pin:        // Charger Button
+        // Debounce check
+        if (currentTime - lastDebounceTime_CHRGR_BTTN < DEBOUNCE_DELAY) break;
+        lastDebounceTime_CHRGR_BTTN = currentTime;
 
-            printfDma("Charger Button pressed\n");
+        printfDma("Charger Button pressed\n");
+        BMS_ChargingButtonLogic();
+        break;
 
-            // Check for charger status and enables charging
-            // or disables charger if charging is enabled
-            BMS_ChargingButtonLogic();
-
-            break;
-
-        default:
-            break;
+    default:
+        break;
     }
-}
-
-
-void BMS_WriteFaultSignal(bool state)
-{
-    HAL_GPIO_WritePin(FAULT_CTRL_GPIO_Port, FAULT_CTRL_Pin, state); // If mosfet is ON, Fault == TRUE
 }
 
 
 void BMS_FaultHandler(BMS_StatusTypeDef status)
 {
-    const uint32_t COMMS_RETRY_DELAY = 500;
+    const uint32_t COMMS_RETRY_DELAY = 100;
     const uint32_t COMMS_RETRY_TIMES = 5;
 
-    BMS_EnableBalancing(false);
-    BMS_EnableCharging(false);
+    // Disable discharge in any case
+    bms_wakeupChain();
+    bms_stopDischarge();
+
+    // if currently charging:
+    if (BMS_IsCharging())
+    {
+        printfDma("Fault Detected, Disabling Charging \n");
+        BMS_EnableCharging(false);
+    }
 
     switch (status)
     {
     case BMS_ERR_COMMS:
+        BMS_SetCommsFault(true);
         programStats.counter_commsError = 0;
         do
         {
@@ -379,21 +430,13 @@ void BMS_FaultHandler(BMS_StatusTypeDef status)
             }
             bms_softReset();
             HAL_Delay(COMMS_RETRY_DELAY);
-            bms_wakeupChain();
         }
         while (bms_readRegister(REG_SID) != BMS_OK);
 
         initRequired = true; // After comms is OK, redo init
         break;
-
-    case BMS_ERR_FAULT:
-        BMS_WriteFaultSignal(true);
-        break;
-
     default:
         break;
-
-    bms_stopDischarge();
     }
 }
 

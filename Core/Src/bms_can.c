@@ -12,9 +12,7 @@
 
 FDCAN_TxHeaderTypeDef TxHeader;
 
-
-#define BUFFER_LEN (7 * 16 + 64)       // TODO: Accurate buffer size
-CanTxMsg txBuffer[BUFFER_LEN];
+CanTxMsg txBuffer[CAN_BUFFER_LEN];
 volatile uint32_t txBufferHeadIndex = 0;
 volatile uint32_t txBufferTailIndex = 0;
 volatile bool isBufferTransmitting = false;
@@ -165,7 +163,7 @@ void static CAN_AbortTx()
 
 void BMS_CAN_SendBuffer(CanTxMsg* msgArr, uint32_t len)
 {
-    if (len > BUFFER_LEN)
+    if (len > CAN_BUFFER_LEN)
     {
         printfDma("Error CANTX: len larger than buffer \n");
         return;
