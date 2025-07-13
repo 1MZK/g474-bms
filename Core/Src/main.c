@@ -44,7 +44,17 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
-const float deltaThreshold = 0.010; // In volts
+typedef struct {
+    volatile uint32_t runtime_sec;
+    volatile uint32_t counter_commsError;
+    volatile uint32_t counter_commsErrorCumulative;
+} ProgramStats;
+
+typedef struct {
+    uint32_t freq;
+    uint32_t period;
+    float duty;
+} ImdStatus;
 
 /* USER CODE END PTD */
 
@@ -62,15 +72,22 @@ const float deltaThreshold = 0.010; // In volts
 
 /* USER CODE BEGIN PV */
 
+ProgramStats    programStats = {0};
+ImdStatus       imdStatus = {0};
+
+volatile bool initRequired = true;
+
+const uint32_t MAIN_LOOP_DELAY = 10;
+
+static const bool DEBUG_SERIAL_LOOP_TIME = false;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 
-uint32_t getRuntimeMs(void);
-uint32_t getRuntimeMsDiff(uint32_t startTime);
-
+void BMS_WriteFanDuty(float duty);
 void BMS_WriteFaultSignal(bool state);
 void BMS_FaultHandler(BMS_StatusTypeDef status);
 
@@ -79,19 +96,6 @@ void BMS_FaultHandler(BMS_StatusTypeDef status);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-typedef struct {
-    volatile uint32_t runtime_sec;
-    volatile uint32_t counter_commsError;
-    volatile uint32_t counter_commsErrorCumulative;
-} ProgramStats;
-
-ProgramStats programStats = {0};
-
-volatile bool initRequired = true;
-
-const uint32_t MAIN_LOOP_DELAY = 10;
-
-static const bool DEBUG_SERIAL_LOOP_TIME = false;
 
 /* USER CODE END 0 */
 
@@ -154,9 +158,11 @@ int main(void)
 
     // Start Timer16
     HAL_TIM_Base_Start_IT(&htim16);
+    HAL_TIM_IC_Start_IT(&htim15, TIM_CHANNEL_1); // Signal Input Channel (Main)
+    HAL_TIM_IC_Start(&htim15, TIM_CHANNEL_2);    // Secondary Channel
 
-//    // Initialise BMS configs (No commands sent)
-//    bms_init();
+    HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);       // Fan PWM Output
+    BMS_WriteFanDuty(0.7);
 
     uint32_t timeDiff = 0;
     uint32_t timeStart;
@@ -168,11 +174,11 @@ int main(void)
     bms_wakeupChain();
     bms_softReset();
 
-    BMS_StatusTypeDef bmsStatus;
 
+    BMS_StatusTypeDef bmsStatus;
     while (1)
     {
-        timeStart = getRuntimeMs();
+        timeStart = HAL_GetTick();
 
         // Init BMS
         if (initRequired == true)
@@ -199,10 +205,10 @@ int main(void)
         printfDma("-\n");
 
         // Calculate single loop runtime
-        timeDiff = getRuntimeMsDiff(timeStart);
+        timeDiff = HAL_GetTick() - timeStart;
         if (DEBUG_SERIAL_LOOP_TIME)
         {
-            printfDma("\nRuntime: %ld ms, LoopTime: %ld ms \n\n", getRuntimeMs(), timeDiff);
+            printfDma("\nRuntime: %ld ms, LoopTime: %ld ms \n\n", HAL_GetTick(), timeDiff);
         }
 
         HAL_Delay(MAIN_LOOP_DELAY);
@@ -354,15 +360,19 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 }
 
 
-uint32_t getRuntimeMs(void)
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 {
-    return HAL_GetTick();
-}
+    if (htim == &htim15)   // PWM input
+    {
+        const uint32_t clockFreq = 128 * 1000 * 1000; // in Hz
 
-
-uint32_t getRuntimeMsDiff(uint32_t startTime)
-{
-    return HAL_GetTick() - startTime; // Divide 10 to get 10ms
+        imdStatus.period = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
+        if (imdStatus.period != 0)
+        {
+            imdStatus.duty = (HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_2)*100.0) / imdStatus.period;
+            imdStatus.freq = (clockFreq/imdStatus.period);
+        }
+    }
 }
 
 
@@ -438,6 +448,16 @@ void BMS_FaultHandler(BMS_StatusTypeDef status)
     default:
         break;
     }
+}
+
+void BMS_WriteFanDuty(float duty)
+{
+    if (duty > 1 || duty <= 0)
+        return;
+
+    duty = 1 - duty;
+
+    TIM3->CCR2 = (uint16_t)(255.0 * duty);
 }
 
 
