@@ -134,7 +134,7 @@ ChargerConfiguration chargerConfig = {
         .disable_charging = 1,
 };
 
-static const float balancingThreshold = 0.020; // Volts
+static const float balancingThreshold = 0.030; // Volts
 
 static const bool DEBUG_SERIAL_VOLTAGE_ENABLED = false;
 static const bool DEBUG_SERIAL_AUX_ENABLED = false;
@@ -555,7 +555,7 @@ void bms_printVoltage(VoltageTypes voltageType)
     for (int ic = 0; ic < TOTAL_AD68; ic++)
     {
         uint8_t paddingOffset;
-        paddingOffset = printfDma("| %2d |", ic);
+        paddingOffset = printfDma("| %2d |", ic+1);
         for (int c = 0; c < TOTAL_CELL; c++)
         {
             printfDma("%8.5f|", vArr[ic][c]);
@@ -1279,9 +1279,9 @@ BMS_StatusTypeDef BMS_ProgramLoop(void)
 
     bms_wakeupChain();
     if ((status = bms29_readVB()))      return status;
-    bms_wakeupChain();
+//    bms_wakeupChain();
     if ((status = bms29_readCurrent())) return status;
-    bms_wakeupChain();
+//    bms_wakeupChain();
     if ((status = bms_balancingMeasureVoltage()))       return status;
 
     // Only balancing/charging if status is OK
@@ -1293,7 +1293,6 @@ BMS_StatusTypeDef BMS_ProgramLoop(void)
         bms_startBalancing(balancingThreshold);
     }
 
-    bms_wakeupChain();
     return status;
 }
 
@@ -1344,7 +1343,7 @@ void BMS_ChargingButtonLogic(void)
 //    if (chargerStatus.hardware_fault != false)      statusOK = false;
 //    if (chargerStatus.over_temp_fault != false)     statusOK = false;
 //    if (chargerStatus.input_voltage_fault != false) statusOK = false;
-//    if (chargerStatus.output_voltage < 300.0f)      statusOK = false;
+    if (chargerStatus.output_voltage < 300.0f)      statusOK = false;
 
     if (statusOK)
     {

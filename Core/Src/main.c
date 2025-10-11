@@ -77,9 +77,9 @@ ImdStatus       imdStatus = {0};
 
 volatile bool initRequired = true;
 
-const uint32_t MAIN_LOOP_DELAY = 10;
+const uint32_t MAIN_LOOP_DELAY = 500;
 
-static const bool DEBUG_SERIAL_LOOP_TIME = false;
+static const bool DEBUG_SERIAL_LOOP_TIME = true;
 
 /* USER CODE END PV */
 
@@ -342,7 +342,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
             {
                 BMS_WriteFaultSignal(true);
             }
-        }
+        };
+        //    const float MIN_TEMP = 0;
 
         // Disable fault signal only if everything is OK
         if (!tempFaultDetected && !voltageFaultDetected && (BMS_CheckCommsFault() == BMS_OK))
@@ -410,8 +411,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
 void BMS_FaultHandler(BMS_StatusTypeDef status)
 {
-    const uint32_t COMMS_RETRY_DELAY = 500;
-    const uint32_t COMMS_RETRY_TIMES = 5;
+    const uint32_t COMMS_RETRY_DELAY = 250;
+    const uint32_t COMMS_RETRY_TIMES = 2;
 
     // Disable discharge in any case
     bms_wakeupChain();
@@ -433,7 +434,7 @@ void BMS_FaultHandler(BMS_StatusTypeDef status)
         {
             programStats.counter_commsError++;
             programStats.counter_commsErrorCumulative++;
-            if (programStats.counter_commsError > COMMS_RETRY_TIMES)
+            if (programStats.counter_commsError >= COMMS_RETRY_TIMES)
             {
                 BMS_WriteFaultSignal(true);
             }
